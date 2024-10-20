@@ -1,7 +1,8 @@
 import os
+import shutil
 import numpy as np
 import librosa
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout
@@ -42,31 +43,23 @@ def process_directory(directory, label):
                 print(f"Error processing file {file_path}: {e}")
     return features, labels
 
-# 3. Directories for AI-generated and human-composed music
-ai_music_dir = 'path_to_ai_music'   # Directory for AI-generated music
-human_music_dir = 'path_to_human_music'  # Directory for human-composed music
+# Train the model for both types of music
+def train_model(X_train, y_train, X_test, y_test, is_ai_music=False):
+    model = create_model((X_train.shape[1],), is_ai_music=is_ai_music)
+    history = model.fit(X_train, y_train, epochs=50, batch_size=32, validation_data=(X_test, y_test))
+    model_path = 'ai_music_classifier.h5' if not is_ai_music else 'ai_music_classifier_ai.h5'
+    model.save(model_path)
+    return model_path
 
-# Extract features and labels from both directories
-ai_features, ai_labels = process_directory(ai_music_dir, 1)   # Label 1 for AI
-human_features, human_labels = process_directory(human_music_dir, 0) # Label 0 for human
-
-# Combine all features and labels
-X = np.array(ai_features + human_features)
-y = np.array(ai_labels + human_labels)
-
-# Split the data into training and test sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-# 4. Create and Train the Neural Network Model
+# Function to create the Neural Network model
 def create_model(input_shape, is_ai_music=False):
     model = Sequential()
     model.add(Dense(256, activation='relu', input_shape=input_shape))
     model.add(Dropout(0.3))
 
     if is_ai_music:
-        # For AI-generated music: add extra layers or modify dropout
         model.add(Dense(128, activation='relu'))
-        model.add(Dropout(0.5))  # Increased dropout for regularization
+        model.add(Dropout(0.5))
     else:
         model.add(Dense(128, activation='relu'))
         model.add(Dropout(0.3))
@@ -75,32 +68,67 @@ def create_model(input_shape, is_ai_music=False):
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
-# Train the model for both types of music
-def train_model(X_train, y_train, X_test, y_test):
-    # First, classify songs to determine training approach
-    model = create_model((X_train.shape[1],), is_ai_music=False)  # Assume default is human music
-    history = model.fit(X_train, y_train, epochs=50, batch_size=32, validation_data=(X_test, y_test))
-    model.save('ai_music_classifier.h5')
-
-    # Check if AI music exists in training set
-    if np.any(y_train == 1):  # If there are AI songs, adjust training
-        model = create_model((X_train.shape[1],), is_ai_music=True)  # Create a model for AI music
-        history_ai = model.fit(X_train[y_train == 1], y_train[y_train == 1], epochs=50, batch_size=32, validation_data=(X_test[y_test == 1], y_test[y_test == 1]))
-        model.save('ai_music_classifier_ai.h5')
-
-# Train the models
-train_model(X_train, y_train, X_test, y_test)
-
-# 5. Function to Classify New Songs
+# Function to classify new songs
 def classify_song(audio_file):
-    model = load_model('ai_music_classifier.h5')  # Load the saved model
-    features = extract_features(audio_file).reshape(1, -1)  # Extract features from new song
+    model = load_model('ai_music_classifier.h5')
+    features = extract_features(audio_file).reshape(1, -1)
     prediction = model.predict(features)
     return "AI-generated" if prediction > 0.5 else "Human-composed"
 
-# 6. Flask API Endpoint for Classification
-@app.route('/classify', methods=['POST'])
-def classify():
+# 3. Flask API to upload a folder for training
+@app.route('/upload_folder', methods=['POST'])
+def upload_folder():
+    if 'zipfile' not in request.files:
+        return jsonify({'error': 'No folder provided'}), 400
+
+    zipfile = request.files['zipfile']
+    if zipfile.filename == '':
+        return jsonify({'error': 'No folder selected'}), 400
+
+    # Create a directory to store the extracted files
+    extract_dir = f'uploaded_data/{zipfile.filename.split(".")[0]}'
+    os.makedirs(extract_dir, exist_ok=True)
+    
+    # Save and extract the zipfile containing audio files
+    zip_path = os.path.join(extract_dir, zipfile.filename)
+    zipfile.save(zip_path)
+
+    shutil.unpack_archive(zip_path, extract_dir)  # Unzip the file
+    os.remove(zip_path)  # Remove the zip file after extraction
+
+    return jsonify({'message': 'Folder uploaded and extracted', 'folder_path': extract_dir})
+
+# 4. API endpoint to train the model with uploaded folder data
+@app.route('/train', methods=['POST'])
+def train():
+    data = request.get_json()
+    folder_path = data.get('folder_path')
+    label_type = data.get('label_type')  # 1 for AI music, 0 for human-composed
+    
+    if not folder_path or not os.path.exists(folder_path):
+        return jsonify({'error': 'Invalid folder path'}), 400
+
+    label = 1 if label_type == 'ai' else 0
+    features, labels = process_directory(folder_path, label)
+
+    if len(features) == 0:
+        return jsonify({'error': 'No valid audio files found in the folder'}), 400
+
+    # Split the data
+    X_train, X_test, y_train, y_test = train_test_split(np.array(features), np.array(labels), test_size=0.2, random_state=42)
+
+    # Train the model based on the label type
+    is_ai_music = label == 1
+    model_path = train_model(X_train, y_train, X_test, y_test, is_ai_music)
+
+    # Optionally, delete folder after training to save space
+    shutil.rmtree(folder_path)
+
+    return jsonify({'message': 'Training completed', 'model_path': model_path})
+
+# 5. API endpoint to generate a song (dummy logic for now)
+@app.route('/generate', methods=['POST'])
+def generate():
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     file = request.files['file']
@@ -111,13 +139,21 @@ def classify():
     file_path = f'temp_{file.filename}'
     file.save(file_path)
 
-    # Classify the song
-    result = classify_song(file_path)
+    # Dummy logic for generating new song
+    generated_file_path = 'generated_music.wav'  # Dummy file for now
 
-    # Remove the temporary file after classification
-    os.remove(file_path)
+    # Return the generated file for download
+    return send_file(generated_file_path, as_attachment=True)
 
-    return jsonify({'result': result})
+# Ensure files are deleted after being used or on disconnect
+@app.after_request
+def cleanup(response):
+    file_to_delete = request.files.get('file')
+    if file_to_delete:
+        temp_file_path = f'temp_{file_to_delete.filename}'
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+    return response
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
