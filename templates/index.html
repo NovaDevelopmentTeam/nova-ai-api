@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Music Generator</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        h1 {
+            color: #333;
+        }
+        form {
+            margin-bottom: 20px;
+        }
+        input[type="text"], input[type="file"], button {
+            margin-top: 10px;
+            padding: 10px;
+            width: 300px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>AI Music Generator</h1>
+
+    <h2>API Key Generierung</h2>
+    <form id="generate-key-form">
+        <button type="button" onclick="generateApiKey()">Neuen API Schlüssel generieren</button>
+    </form>
+
+    <h2>Ordner hochladen</h2>
+    <form id="upload-folder-form" enctype="multipart/form-data">
+        <input type="file" id="zipfile" name="zipfile" accept=".zip" required>
+        <button type="button" onclick="uploadFolder()">Ordner hochladen</button>
+    </form>
+
+    <h2>Modell trainieren</h2>
+    <form id="train-model-form">
+        <input type="text" id="folder-path" placeholder="Ordnerpfad" required>
+        <select id="label-type">
+            <option value="human">Human</option>
+            <option value="ai">AI</option>
+        </select>
+        <button type="button" onclick="trainModel()">Modell trainieren</button>
+    </form>
+
+    <h2>Musik generieren</h2>
+    <form id="generate-music-form" enctype="multipart/form-data">
+        <input type="file" id="music-file" name="file" required>
+        <button type="button" onclick="generateMusic()">Musik generieren</button>
+    </form>
+
+    <script>
+        async function generateApiKey() {
+            const response = await fetch('/generate_key', {
+                method: 'POST',
+                headers: {
+                    'x-api-key': 'your_admin_key_here' // Ersetze durch deinen Admin API-Schlüssel
+                }
+            });
+            const data = await response.json();
+            alert(data.message + (data.api_key ? `: ${data.api_key}` : ''));
+        }
+
+        async function uploadFolder() {
+            const zipfile = document.getElementById('zipfile').files[0];
+            const formData = new FormData();
+            formData.append('zipfile', zipfile);
+
+            const response = await fetch('/upload_folder', {
+                method: 'POST',
+                headers: {
+                    'x-api-key': 'your_api_key_here' // Ersetze durch deinen API-Schlüssel
+                },
+                body: formData
+            });
+
+            const data = await response.json();
+            alert(data.message || data.error);
+        }
+
+        async function trainModel() {
+            const folderPath = document.getElementById('folder-path').value;
+            const labelType = document.getElementById('label-type').value;
+
+            const response = await fetch('/train', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': 'your_api_key_here' // Ersetze durch deinen API-Schlüssel
+                },
+                body: JSON.stringify({ folder_path: folderPath, label_type: labelType })
+            });
+
+            const data = await response.json();
+            alert(data.message || data.error);
+        }
+
+        async function generateMusic() {
+            const musicFile = document.getElementById('music-file').files[0];
+            const formData = new FormData();
+            formData.append('file', musicFile);
+
+            const response = await fetch('/generate', {
+                method: 'POST',
+                headers: {
+                    'x-api-key': 'your_api_key_here' // Ersetze durch deinen API-Schlüssel
+                },
+                body: formData
+            });
+
+            const data = await response.blob();
+            const url = window.URL.createObjectURL(data);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'generated_music.wav';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        }
+    </script>
+
+</body>
+</html>
