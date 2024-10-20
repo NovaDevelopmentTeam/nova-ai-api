@@ -38,7 +38,18 @@ def save_api_keys(api_keys):
 def generate_api_key():
     return str(uuid.uuid4())
 
-# 4. API key decorator for route protection
+# 4. Automatically generate an API key if no keys exist
+def ensure_api_key_exists():
+    api_keys = load_api_keys()
+    if not api_keys:
+        new_api_key = generate_api_key()
+        api_keys[new_api_key] = True  # True means active
+        save_api_keys(api_keys)
+        print(f"Generated new API key: {new_api_key}")
+    else:
+        print(f"Existing API keys found: {list(api_keys.keys())}")
+
+# 5. API key decorator for route protection
 def require_api_key(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -50,7 +61,7 @@ def require_api_key(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# 5. Generate and save new API key
+# 6. Generate and save new API key
 @app.route('/generate_key', methods=['POST'])
 def generate_key():
     # Check if the request contains the admin API key
@@ -66,7 +77,7 @@ def generate_key():
     
     return jsonify({'message': 'API key generated', 'api_key': new_api_key})
 
-# 6. List all API keys (admin only)
+# 7. List all API keys (admin only)
 @app.route('/list_keys', methods=['GET'])
 @require_api_key
 def list_keys():
@@ -78,7 +89,7 @@ def list_keys():
     api_keys = load_api_keys()
     return jsonify({'api_keys': list(api_keys.keys())})
 
-# 7. Delete an API key (admin only)
+# 8. Delete an API key (admin only)
 @app.route('/delete_key', methods=['POST'])
 @require_api_key
 def delete_key():
@@ -97,13 +108,13 @@ def delete_key():
     else:
         return jsonify({'error': 'API key not found'}), 404
 
-# 8. Example protected route
+# 9. Example protected route
 @app.route('/protected_route', methods=['GET'])
 @require_api_key
 def protected_route():
     return jsonify({'message': 'You have accessed a protected route'})
 
-# 9. Function to extract features from audio
+# 10. Function to extract features from audio
 def extract_features(audio_file):
     y, sr = librosa.load(audio_file, sr=None)
     mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
@@ -114,7 +125,7 @@ def extract_features(audio_file):
     contrast_mean = np.mean(spectral_contrast.T, axis=0)
     return np.hstack([mfcc_mean, chroma_mean, contrast_mean])
 
-# 10. Process data from directory
+# 11. Process data from directory
 def process_directory(directory, label):
     features = []
     labels = []
@@ -128,7 +139,7 @@ def process_directory(directory, label):
                 print(f"Error processing file {file_path}: {e}")
     return features, labels
 
-# 11. Create the neural network model
+# 12. Create the neural network model
 def create_model(input_shape, is_ai_music=False):
     model = Sequential()
     model.add(Dense(256, activation='relu', input_shape=input_shape))
@@ -143,7 +154,7 @@ def create_model(input_shape, is_ai_music=False):
     model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
     return model
 
-# 12. Train the model
+# 13. Train the model
 def train_model(X_train, y_train, X_test, y_test, is_ai_music=False):
     model = create_model((X_train.shape[1],), is_ai_music=is_ai_music)
     model.fit(X_train, y_train, epochs=50, batch_size=32, validation_data=(X_test, y_test))
@@ -221,5 +232,8 @@ def cleanup(response):
             os.remove(temp_file_path)
     return response
 
+# Ensure an API key exists at startup
+ensure_api_key_exists()
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    app.run(debug=True)
