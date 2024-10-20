@@ -236,4 +236,6 @@ def cleanup(response):
 ensure_api_key_exists()
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))  # Standardmäßig 5000, wenn die Umgebungsvariable nicht gesetzt ist
+    app.run(host='0.0.0.0', port=port, debug=True)
+
